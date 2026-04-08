@@ -58,13 +58,26 @@ def _ingest_local_file(vault_path: Path, source: Path) -> dict:
     subdir = EXT_MAP.get(ext, DEFAULT_SUBDIR)
     dest_dir = vault_path / subdir
     dest_dir.mkdir(parents=True, exist_ok=True)
-    dest = dest_dir / source.name
+
+    # Disambiguate common filenames (SKILL.md, README.md, etc.) by prefixing parent dir
+    dest_name = source.name
+    dest = dest_dir / dest_name
+    if dest.exists() or dest_name.upper() == dest_name:
+        # Use parent folder name as prefix for disambiguation
+        parent_name = source.parent.name
+        if parent_name and parent_name not in (".", "/"):
+            dest_name = f"{parent_name}-{source.name}"
+            dest = dest_dir / dest_name
 
     shutil.copy2(source, dest)
 
     rel_path = dest.relative_to(vault_path).as_posix()
     words = _word_count(dest)
-    title = _title_from_path(source)
+    # Use parent folder for title when filename is generic
+    if source.stem.upper() == source.stem and source.parent.name:
+        title = _title_from_path(Path(source.parent.name))
+    else:
+        title = _title_from_path(source)
 
     return {
         "source": str(source),

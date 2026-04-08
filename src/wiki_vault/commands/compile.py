@@ -12,9 +12,17 @@ The LLM reasoning happens through the Claude Code session. This module:
 """
 
 import json
+import sys
 from pathlib import Path
 
 import click
+
+
+def _safe_echo(msg: str, **kwargs) -> None:
+    """click.echo that replaces unencodable chars on Windows."""
+    if sys.platform == "win32":
+        msg = msg.encode("ascii", errors="replace").decode("ascii")
+    click.echo(msg, **kwargs)
 
 from wiki_vault.utils.catalog import get_pending_sources, mark_compiled
 from wiki_vault.utils.git import git_commit
@@ -155,12 +163,12 @@ def run_compile(batch: bool = False) -> None:
     sources_to_compile = _get_sources_to_compile(vault_path)
 
     if not sources_to_compile:
-        click.echo("Nothing to compile. All sources are up to date.")
+        _safe_echo("Nothing to compile. All sources are up to date.")
         return
 
-    click.echo(f"Found {len(sources_to_compile)} source(s) to compile:")
+    _safe_echo(f"Found {len(sources_to_compile)} source(s) to compile:")
     for s in sources_to_compile:
-        click.echo(f"  - {s}")
+        _safe_echo(f"  - {s}")
 
     # Read all source content
     source_contents = {}
@@ -168,14 +176,14 @@ def run_compile(batch: bool = False) -> None:
         try:
             source_contents[src] = _read_source(vault_path, src)
         except Exception as e:
-            click.echo(f"  Warning: Could not read {src}: {e}", err=True)
+            _safe_echo(f"  Warning: Could not read {src}: {e}", err=True)
 
     if not source_contents:
-        click.echo("No readable sources. Aborting.")
+        _safe_echo("No readable sources. Aborting.")
         return
 
     # === Phase 1: Concept Extraction ===
-    click.echo("\n--- Phase 1: Concept Extraction ---")
+    _safe_echo("\n--- Phase 1: Concept Extraction ---")
     extraction_prompt = _build_extraction_prompt(source_contents)
     _write_extraction_prompt(vault_path, extraction_prompt)
 
@@ -183,12 +191,12 @@ def run_compile(batch: bool = False) -> None:
 
     # Check for existing manifest (resume support)
     if manifest_path.exists():
-        click.echo("Found existing pending-manifest.json from previous run.")
+        _safe_echo("Found existing pending-manifest.json from previous run.")
         if not batch:
             use_existing = click.confirm("Use existing manifest?", default=True)
             if use_existing:
                 manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-                click.echo(f"Resuming with {_count_items(manifest)} items from manifest.")
+                _safe_echo(f"Resuming with {_count_items(manifest)} items from manifest.")
             else:
                 manifest = _run_extraction(vault_path, extraction_prompt, manifest_path, batch)
         else:
@@ -197,11 +205,11 @@ def run_compile(batch: bool = False) -> None:
         manifest = _run_extraction(vault_path, extraction_prompt, manifest_path, batch)
 
     if not manifest:
-        click.echo("No concepts extracted. Aborting.")
+        _safe_echo("No concepts extracted. Aborting.")
         return
 
     # === Phase 2: Wiki Page Generation ===
-    click.echo("\n--- Phase 2: Wiki Page Generation ---")
+    _safe_echo("\n--- Phase 2: Wiki Page Generation ---")
     all_items = []
     for category in ["concepts", "entities", "topics"]:
         all_items.extend(manifest.get(category, []))
@@ -222,12 +230,12 @@ def run_compile(batch: bool = False) -> None:
 
         article_prompt = _build_article_prompt(item, source_contents, existing_content)
 
-        click.echo(f"\n  Writing: {title} ({item['type']})")
+        _safe_echo(f"\n  Writing: {title} ({item['type']})")
 
         if not batch:
             # Interactive: show the prompt and let the user/LLM generate content
-            click.echo(f"  Prompt written. In interactive mode, the LLM generates content.")
-            click.echo(f"  For now, generating a structured article from source material...")
+            _safe_echo(f"  Prompt written. In interactive mode, the LLM generates content.")
+            _safe_echo(f"  For now, generating a structured article from source material...")
 
         # Generate article body from source material
         body = _generate_article_body(item, source_contents)
@@ -242,7 +250,7 @@ def run_compile(batch: bool = False) -> None:
             )
             articles_updated += 1
             all_article_paths.append(existing)
-            click.echo(f"  Updated: {existing}")
+            _safe_echo(f"  Updated: {existing}")
         else:
             rel_path = create_wiki_page(
                 vault_path,
@@ -256,7 +264,7 @@ def run_compile(batch: bool = False) -> None:
             )
             articles_created += 1
             all_article_paths.append(rel_path)
-            click.echo(f"  Created: {rel_path}")
+            _safe_echo(f"  Created: {rel_path}")
 
         # Update index
         update_index(vault_path, title, item["type"], item["description"], all_article_paths[-1])
@@ -290,10 +298,10 @@ def run_compile(batch: bool = False) -> None:
         f"wiki-vault: compile | {len(sources_to_compile)} sources, {articles_created + articles_updated} articles",
     )
 
-    click.echo(f"\nCompile complete:")
-    click.echo(f"  {articles_created} articles created")
-    click.echo(f"  {articles_updated} articles updated")
-    click.echo(f"  {len(sources_to_compile)} sources marked as compiled")
+    _safe_echo(f"\nCompile complete:")
+    _safe_echo(f"  {articles_created} articles created")
+    _safe_echo(f"  {articles_updated} articles updated")
+    _safe_echo(f"  {len(sources_to_compile)} sources marked as compiled")
 
 
 def _count_items(manifest: dict) -> int:
@@ -309,7 +317,7 @@ def _run_extraction(vault_path: Path, prompt: str, manifest_path: Path, batch: b
     import re
     import frontmatter as fm
 
-    click.echo("Extracting concepts from sources...")
+    _safe_echo("Extracting concepts from sources...")
 
     concepts = []
     entities = []
@@ -407,22 +415,22 @@ def _run_extraction(vault_path: Path, prompt: str, manifest_path: Path, batch: b
 
     # Write the manifest
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
-    click.echo(f"Extracted: {len(concepts)} concepts, {len(entities)} entities, {len(topics)} topics")
+    _safe_echo(f"Extracted: {len(concepts)} concepts, {len(entities)} entities, {len(topics)} topics")
 
     if not batch:
-        click.echo("\nConcept manifest:")
+        _safe_echo("\nConcept manifest:")
         for category in ["concepts", "entities", "topics"]:
             items = manifest.get(category, [])
             if items:
-                click.echo(f"\n  {category.title()} ({len(items)}):")
+                _safe_echo(f"\n  {category.title()} ({len(items)}):")
                 for item in items[:10]:
-                    click.echo(f"    - {item['name']}: {item['description'][:80]}")
+                    _safe_echo(f"    - {item['name']}: {item['description'][:80]}")
                 if len(items) > 10:
-                    click.echo(f"    ... and {len(items) - 10} more")
+                    _safe_echo(f"    ... and {len(items) - 10} more")
 
         proceed = click.confirm("\nProceed to wiki generation?", default=True)
         if not proceed:
-            click.echo("Manifest saved. Re-run compile to resume.")
+            _safe_echo("Manifest saved. Re-run compile to resume.")
             return None
 
     return manifest
